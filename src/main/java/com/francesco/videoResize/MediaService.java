@@ -5,9 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -65,9 +63,17 @@ public class MediaService {
 
                 Process process = pb.start();
                 int exit = process.waitFor();
+                String errorOutput;
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getErrorStream()))) {
+
+                    errorOutput = reader.lines()
+                            .reduce("", (a, b) -> a + "\n" + b);
+                }
                 if (exit != 0) {
                     String sqlError = "UPDATE media SET status = 'ERROR' WHERE id = ?";
                     this.jdbcTemplate.update(sqlError,id);
+                    System.out.println("FFmpeg error output:\n" + errorOutput);
                     throw new RuntimeException("FFmpeg error");
                 }
                 System.out.println(inputPath.getFileName());
