@@ -32,16 +32,25 @@ public class MediaService {
     @Scheduled(fixedDelay = 10000)
     public void getVideo() {
 
+        String jobId = UUID.randomUUID().toString().substring(0, 8);
+        long startJob = System.currentTimeMillis();
+
+        System.out.println("\n==============================");
+        System.out.println("🚀 JOB STARTED: " + jobId);
+        System.out.println("==============================");
+
         if (!running.compareAndSet(false, true)) {
-            System.out.println("job already running → skip");
+            System.out.println("⛔ [" + jobId + "] job already running → skip");
             return;
         }
 
         try {
             List<Map<String, Object>> video = getMedia();
 
+            System.out.println("📦 [" + jobId + "] videos found: " + video.size());
+
             if (video.isEmpty()) {
-                System.out.println("no video");
+                System.out.println("📭 [" + jobId + "] no video");
                 return;
             }
 
@@ -50,21 +59,34 @@ public class MediaService {
                 String publicId = vids.get("public_id").toString();
                 UUID id = UUID.fromString(vids.get("id").toString());
 
+                System.out.println("\n------------------------------");
+                System.out.println("🎬 [" + jobId + "] PROCESSING VIDEO");
+                System.out.println("🆔 id: " + id);
+                System.out.println("📁 publicId: " + publicId);
+                System.out.println("------------------------------");
+
                 Path inputPath = null;
                 Path outputPath = null;
 
                 try (InputStream in = storageService.getVideo("post-raw", publicId)) {
+
+                    System.out.println("⬇️ [" + jobId + "] downloading video...");
 
                     inputPath = Files.createTempFile("input-", ".mp4");
                     outputPath = Files.createTempFile("output-", ".mp4");
 
                     Files.copy(in, inputPath, StandardCopyOption.REPLACE_EXISTING);
 
+                    System.out.println("📥 [" + jobId + "] input file: " + inputPath);
+                    System.out.println("📤 [" + jobId + "] output file: " + outputPath);
+
+                    long ffStart = System.currentTimeMillis();
+
                     ProcessBuilder pb = new ProcessBuilder(
                             "ffmpeg",
                             "-y",
                             "-i", inputPath.toString(),
-                            "-vf", "scale=720:-2",
+                            "-vf", "scale=720:-2,format=yuv420p",
                             "-c:v", "libx264",
                             "-pix_fmt", "yuv420p",
                             "-crf", "28",
@@ -74,6 +96,8 @@ public class MediaService {
                             outputPath.toString()
                     );
 
+                    System.out.println("⚙️ [" + jobId + "] starting ffmpeg...");
+
                     Process process = pb.start();
 
                     String stdout = new String(process.getInputStream().readAllBytes());
@@ -81,19 +105,35 @@ public class MediaService {
 
                     int exit = process.waitFor();
 
-                    System.out.println("FFMPEG STDOUT:\n" + stdout);
-                    System.out.println("FFMPEG STDERR:\n" + stderr);
+                    long ffEnd = System.currentTimeMillis();
 
+                    System.out.println("⏱️ [" + jobId + "] ffmpeg time: " + (ffEnd - ffStart) + "ms");
+                    System.out.println("📊 [" + jobId + "] exit code: " + exit);
+
+                    System.out.println("------ FFMPEG STDOUT ------");
+                    System.out.println(stdout);
+
+                    System.out.println("------ FFMPEG STDERR ------");
+                    System.out.println(stderr);
 
                     if (exit != 0) {
+                        System.out.println("❌ [" + jobId + "] ffmpeg FAILED for id " + id);
+
                         jdbcTemplate.update(
                                 "UPDATE media SET status = 'ERROR' WHERE id = ?",
                                 id
                         );
+
                         throw new RuntimeException("FFmpeg error");
                     }
 
-                    String key = storageService.uploadRawVideo(outputPath.toFile(), outputPath.getFileName().toString());
+                    System.out.println("⬆️ [" + jobId + "] uploading result...");
+
+                    String key = storageService.uploadRawVideo(
+                            outputPath.toFile(),
+                            outputPath.getFileName().toString()
+                    );
+
                     String url = storageService.getRawUrl(key);
 
                     storageService.delete("post-raw", publicId);
@@ -103,10 +143,18 @@ public class MediaService {
                             url, key, id
                     );
 
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    System.out.println("✅ [" + jobId + "] DONE video id: " + id);
+
+                } catch (Exception e) {
+                    System.out.println("💥 [" + jobId + "] ERROR processing video id: " + id);
+                    e.printStackTrace();
+                    try {
+                        throw e;
+                    } catch (IOException ex) {
+                        throw new RuntimeException(ex);
+                    } catch (InterruptedException ex) {
+                        throw new RuntimeException(ex);
+                    }
                 } finally {
                     try { if (inputPath != null) Files.deleteIfExists(inputPath); } catch (Exception ignored) {}
                     try { if (outputPath != null) Files.deleteIfExists(outputPath); } catch (Exception ignored) {}
@@ -115,6 +163,12 @@ public class MediaService {
 
         } finally {
             running.set(false);
+
+            long endJob = System.currentTimeMillis();
+            System.out.println("\n==============================");
+            System.out.println("🏁 JOB FINISHED: " + jobId);
+            System.out.println("⏱️ TOTAL TIME: " + (endJob - startJob) + "ms");
+            System.out.println("==============================\n");
         }
     }
 }
