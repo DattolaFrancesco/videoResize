@@ -75,20 +75,21 @@ public class MediaService {
                     );
 
                     Process process = pb.start();
+
+                    String stdout = new String(process.getInputStream().readAllBytes());
+                    String stderr = new String(process.getErrorStream().readAllBytes());
+
                     int exit = process.waitFor();
 
-                    String errorOutput;
-                    try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(process.getErrorStream()))) {
-                        errorOutput = reader.lines().reduce("", (a, b) -> a + "\n" + b);
-                    }
+                    System.out.println("FFMPEG STDOUT:\n" + stdout);
+                    System.out.println("FFMPEG STDERR:\n" + stderr);
+
 
                     if (exit != 0) {
                         jdbcTemplate.update(
                                 "UPDATE media SET status = 'ERROR' WHERE id = ?",
                                 id
                         );
-                        System.out.println(errorOutput);
                         throw new RuntimeException("FFmpeg error");
                     }
 
