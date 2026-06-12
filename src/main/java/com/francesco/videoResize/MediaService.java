@@ -12,11 +12,13 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class MediaService {
     private  final JdbcTemplate jdbcTemplate;
     private final StorageService storageService;
+    private  final AtomicBoolean running = new AtomicBoolean(false);
 
     public MediaService(JdbcTemplate jdbcTemplate, StorageService storageService) {
         this.jdbcTemplate = jdbcTemplate;
@@ -29,6 +31,10 @@ public class MediaService {
     }
     @Scheduled(fixedDelay = 10000)
     public void getVideo() {
+        if(!this.running.compareAndSet(false,true)){
+            System.out.println("job already joing");
+            return;
+        }
         List<Map<String, Object>> video = getMedia();
 
         if (video.isEmpty()) {
@@ -113,6 +119,7 @@ public class MediaService {
                         Files.deleteIfExists(outputPath);
                     }
                 } catch (IOException ignored) {}
+                running.set(false);
             }
         }
     }
