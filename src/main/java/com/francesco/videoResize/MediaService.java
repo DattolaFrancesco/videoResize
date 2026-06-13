@@ -57,7 +57,6 @@ public class MediaService {
             Map<String, Object> vid = jdbcTemplate.queryForMap("""
             SELECT * FROM media
             WHERE status = 'PENDING'
-            ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
         """);
