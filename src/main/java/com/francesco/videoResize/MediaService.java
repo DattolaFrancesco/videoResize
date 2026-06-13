@@ -32,7 +32,7 @@ public class MediaService {
     }
     @Scheduled(fixedDelay = 10000)
     public void getVideo() {
-        
+
         String jobId = UUID.randomUUID().toString().substring(0, 8);
         long startJob = System.currentTimeMillis();
 
@@ -45,255 +45,187 @@ public class MediaService {
             return;
         }
 
+        Path inputPath = null;
+        Path outputPath = null;
+        UUID id = null;
+
         try {
 
-            List<Map<String, Object>> videos = getMedia();
+            // =========================
+            // 1. PRENDI SOLO 1 VIDEO
+            // =========================
+            Map<String, Object> vid = jdbcTemplate.queryForMap("""
+            SELECT * FROM media
+            WHERE status = 'PENDING'
+            ORDER BY created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        """);
 
-            System.out.println("📦 [" + jobId + "] videos found: " + videos.size());
-
-            if (videos.isEmpty()) {
+            if (vid == null || vid.isEmpty()) {
                 System.out.println("📭 [" + jobId + "] no video");
                 return;
             }
 
-            for (Map<String, Object> vid : videos) {
+            id = UUID.fromString(vid.get("id").toString());
+            String publicId = vid.get("public_id").toString();
 
-                UUID id = UUID.fromString(vid.get("id").toString());
-                String publicId = vid.get("public_id").toString();
+            // =========================
+            // 2. MARK PROCESSING SUBITO
+            // =========================
+            jdbcTemplate.update(
+                    "UPDATE media SET status='PROCESSING' WHERE id=?",
+                    id
+            );
 
-                System.out.println("\n------------------------------");
-                System.out.println("🎬 [" + jobId + "] PROCESSING VIDEO");
-                System.out.println("🆔 id: " + id);
-                System.out.println("📁 publicId: " + publicId);
-                System.out.println("------------------------------");
+            System.out.println("🎬 [" + jobId + "] PROCESSING VIDEO: " + id);
 
-                Path inputPath = null;
-                Path outputPath = null;
+            // =========================
+            // 3. DOWNLOAD
+            // =========================
+            try (InputStream in = storageService.getVideo("post-raw", publicId)) {
 
-                try (InputStream in =
-                             storageService.getVideo("post-raw", publicId)) {
+                inputPath = Files.createTempFile("input-", ".mp4");
+                outputPath = Files.createTempFile("output-", ".mp4");
 
-                    System.out.println("⬇️ [" + jobId + "] downloading video...");
+                Files.copy(in, inputPath, StandardCopyOption.REPLACE_EXISTING);
 
-                    inputPath = Files.createTempFile("input-", ".mp4");
-                    outputPath = Files.createTempFile("output-", ".mp4");
+                System.out.println("📥 input size: " + Files.size(inputPath));
 
-                    Files.copy(
-                            in,
-                            inputPath,
-                            StandardCopyOption.REPLACE_EXISTING
-                    );
+                // =========================
+                // 4. FFmpeg SAFE CONFIG
+                // =========================
+                ProcessBuilder pb = new ProcessBuilder(
+                        "ffmpeg",
+                        "-y",
+                        "-i", inputPath.toString(),
 
-                    System.out.println("📥 [" + jobId + "] input file: " + inputPath);
-                    System.out.println("📤 [" + jobId + "] output file: " + outputPath);
+                        // ⚠️ riduce CPU/RAM spike
+                        "-vf", "scale=640:-2:flags=lanczos",
+                        "-c:v", "libx264",
+                        "-preset", "veryfast",
+                        "-crf", "30",
+                        "-maxrate", "800k",
+                        "-bufsize", "1600k",
 
-                    System.out.println(
-                            "📏 [" + jobId + "] input size: "
-                                    + Files.size(inputPath) + " bytes"
-                    );
+                        "-tune", "fastdecode",
+                        "-profile:v", "baseline",
+                        "-level", "3.0",
 
-                    long ffStart = System.currentTimeMillis();
+                        "-c:a", "aac",
+                        "-b:a", "96k",
 
-                    ProcessBuilder pb = new ProcessBuilder(
-                            "ffmpeg",
-                            "-threads", "1",
-                            "-y",
-                            "-i", inputPath.toString(),
-                            "-vf", "scale=720:-2,format=yuv420p",
-                            "-c:v", "libx264",
-                            "-pix_fmt", "yuv420p",
-                            "-preset", "ultrafast",
-                            "-crf", "28",
-                            "-c:a", "aac",
-                            "-b:a", "128k",
-                            "-movflags", "+faststart",
-                            outputPath.toString()
-                    );
+                        "-movflags", "+faststart",
+                        outputPath.toString()
+                );
 
-                    pb.redirectErrorStream(true);
+                pb.redirectErrorStream(true);
 
-                    System.out.println("⚙️ [" + jobId + "] ABOUT TO START FFMPEG");
+                System.out.println("⚙️ starting ffmpeg...");
 
-                    Process process = pb.start();
+                Process process = pb.start();
 
-                    System.out.println("⚙️ [" + jobId + "] FFMPEG STARTED");
-                    System.out.println("⚙️ [" + jobId + "] PID = " + process.pid());
+                // =========================
+                // 5. STREAM LOG NON BLOCCANTE
+                // =========================
+                Thread logThread = new Thread(() -> {
+                    try (BufferedReader br = new BufferedReader(
+                            new InputStreamReader(process.getInputStream()))) {
 
-                    Thread ffmpegLogger = new Thread(() -> {
-
-                        try (
-                                BufferedReader br =
-                                        new BufferedReader(
-                                                new InputStreamReader(
-                                                        process.getInputStream()
-                                                )
-                                        )
-                        ) {
-
-                            String line;
-
-                            while ((line = br.readLine()) != null) {
-                                System.out.println("[FFMPEG] " + line);
-                            }
-
-                            System.out.println("[FFMPEG] STREAM CLOSED");
-
-                        } catch (Exception e) {
-                            System.out.println("[FFMPEG] LOGGER ERROR");
-                            e.printStackTrace();
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            System.out.println("[FFMPEG] " + line);
                         }
-                    });
 
-                    ffmpegLogger.start();
-
-                    System.out.println(
-                            "⚙️ [" + jobId + "] WAITING FOR FFMPEG..."
-                    );
-
-                    boolean finished =
-                            process.waitFor(60, TimeUnit.SECONDS);
-
-                    System.out.println(
-                            "⚙️ [" + jobId + "] WAIT RETURNED"
-                    );
-
-                    System.out.println(
-                            "⚙️ [" + jobId + "] FINISHED = " + finished
-                    );
-
-                    if (!finished) {
-
-                        System.out.println(
-                                "💀 [" + jobId + "] FFMPEG TIMEOUT"
-                        );
-
-                        process.destroyForcibly();
-
-                        jdbcTemplate.update(
-                                "UPDATE media SET status='ERROR' WHERE id=?",
-                                id
-                        );
-
-                        throw new RuntimeException(
-                                "FFmpeg timeout"
-                        );
+                    } catch (Exception e) {
+                        System.out.println("[FFMPEG] log error");
                     }
+                });
 
-                    int exit = process.exitValue();
+                logThread.start();
 
-                    ffmpegLogger.join(5000);
+                // =========================
+                // 6. TIMEOUT SAFE
+                // =========================
+                boolean finished = process.waitFor(90, TimeUnit.SECONDS);
 
-                    long ffEnd = System.currentTimeMillis();
+                if (!finished) {
+                    System.out.println("💀 [" + jobId + "] TIMEOUT → killing ffmpeg");
 
-                    System.out.println(
-                            "⏱️ [" + jobId + "] FFMPEG TIME = "
-                                    + (ffEnd - ffStart) + " ms"
-                    );
-
-                    System.out.println(
-                            "📊 [" + jobId + "] EXIT CODE = "
-                                    + exit
-                    );
-
-                    System.out.println(
-                            "📂 [" + jobId + "] OUTPUT EXISTS = "
-                                    + Files.exists(outputPath)
-                    );
-
-                    if (Files.exists(outputPath)) {
-
-                        System.out.println(
-                                "📏 [" + jobId + "] OUTPUT SIZE = "
-                                        + Files.size(outputPath)
-                                        + " bytes"
-                        );
-                    }
-
-                    if (exit != 0) {
-
-                        jdbcTemplate.update(
-                                "UPDATE media SET status='ERROR' WHERE id=?",
-                                id
-                        );
-
-                        throw new RuntimeException(
-                                "FFmpeg exit code = " + exit
-                        );
-                    }
-
-                    System.out.println(
-                            "⬆️ [" + jobId + "] uploading result..."
-                    );
-
-                    String key =
-                            storageService.uploadRawVideo(
-                                    outputPath.toFile(),
-                                    outputPath.getFileName().toString()
-                            );
-
-                    System.out.println(
-                            "☁️ [" + jobId + "] upload complete"
-                    );
-
-                    String url = storageService.getRawUrl(key);
-
-                    storageService.delete(
-                            "post-raw",
-                            publicId
-                    );
+                    process.destroy();
+                    process.waitFor(5, TimeUnit.SECONDS);
+                    process.destroyForcibly();
 
                     jdbcTemplate.update(
-                            "UPDATE media " +
-                                    "SET link=?, public_id=?, status='DONE' " +
-                                    "WHERE id=?",
-                            url,
-                            key,
+                            "UPDATE media SET status='ERROR' WHERE id=?",
                             id
                     );
 
-                    System.out.println(
-                            "✅ [" + jobId + "] DONE video id: " + id
-                    );
-
-                } catch (Exception e) {
-
-                    System.out.println(
-                            "💥 [" + jobId + "] ERROR VIDEO ID = " + id
-                    );
-
-                    e.printStackTrace();
-
-                } finally {
-
-                    try {
-                        if (inputPath != null)
-                            Files.deleteIfExists(inputPath);
-                    } catch (Exception ignored) {}
-
-                    try {
-                        if (outputPath != null)
-                            Files.deleteIfExists(outputPath);
-                    } catch (Exception ignored) {}
+                    return;
                 }
+
+                int exit = process.exitValue();
+                logThread.join(3000);
+
+                if (exit != 0) {
+                    System.out.println("❌ ffmpeg failed");
+
+                    jdbcTemplate.update(
+                            "UPDATE media SET status='ERROR' WHERE id=?",
+                            id
+                    );
+
+                    return;
+                }
+
+                // =========================
+                // 7. UPLOAD
+                // =========================
+                String key = storageService.uploadRawVideo(
+                        outputPath.toFile(),
+                        outputPath.getFileName().toString()
+                );
+
+                String url = storageService.getRawUrl(key);
+
+                storageService.delete("post-raw", publicId);
+
+                jdbcTemplate.update("""
+                UPDATE media
+                SET link=?, public_id=?, status='DONE'
+                WHERE id=?
+            """, url, key, id);
+
+                System.out.println("✅ DONE: " + id);
+
+            }
+
+        } catch (Exception e) {
+
+            System.out.println("💥 ERROR jobId=" + jobId);
+            e.printStackTrace();
+
+            if (id != null) {
+                jdbcTemplate.update(
+                        "UPDATE media SET status='ERROR' WHERE id=?",
+                        id
+                );
             }
 
         } finally {
 
             running.set(false);
 
+            try { if (inputPath != null) Files.deleteIfExists(inputPath); } catch (Exception ignored) {}
+            try { if (outputPath != null) Files.deleteIfExists(outputPath); } catch (Exception ignored) {}
+
             long endJob = System.currentTimeMillis();
 
             System.out.println("\n==============================");
             System.out.println("🏁 JOB FINISHED: " + jobId);
-            System.out.println(
-                    "⏱️ TOTAL TIME: "
-                            + (endJob - startJob)
-                            + " ms"
-            );
+            System.out.println("⏱ TOTAL: " + (endJob - startJob) + " ms");
             System.out.println("==============================\n");
         }
-
-
     }
 
 }
