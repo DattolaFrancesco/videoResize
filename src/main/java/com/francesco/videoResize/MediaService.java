@@ -84,11 +84,13 @@ public class MediaService {
 
                     ProcessBuilder pb = new ProcessBuilder(
                             "ffmpeg",
+                            "-threads", "1",
                             "-y",
                             "-i", inputPath.toString(),
                             "-vf", "scale=720:-2,format=yuv420p",
                             "-c:v", "libx264",
                             "-pix_fmt", "yuv420p",
+                            "-preset", "ultrafast",
                             "-crf", "28",
                             "-c:a", "aac",
                             "-b:a", "128k",
