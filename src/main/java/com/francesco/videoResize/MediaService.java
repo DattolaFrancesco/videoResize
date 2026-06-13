@@ -28,7 +28,8 @@ public class MediaService {
 
     public Map<String,Object> getMedia(){
         String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' LIMIT 1";
-        return jdbcTemplate.queryForMap(sql);
+        List<Map<String,Object>> result =  jdbcTemplate.queryForList(sql);
+        return result.isEmpty() ? null : result.getFirst();
     }
     @Scheduled(fixedDelay = 30000)
     public void getVideo() {
@@ -36,8 +37,9 @@ public class MediaService {
             System.out.println("[VIDEO] job already running");
             return;
         }
+        Map<String, Object> video = getMedia();
+        if(video == null) return;
         try {
-            Map<String, Object> video = getMedia();
             System.out.println("[VIDEO] fetched: " + video.size());
             if (video.isEmpty()) {
                 System.out.println("[VIDEO] no videos");
