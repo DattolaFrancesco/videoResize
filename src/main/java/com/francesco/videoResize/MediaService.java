@@ -62,7 +62,7 @@ public class MediaService {
                                 "-y",
                                 "-i", inputPath.toString(),
                                 "-map_metadata", "-1",
-                                "-vf", "scale=-2:720,format=yuv420p",
+                                "-vf", "scale=-2:720,format=yuv420p,flags=fast_bilinear",
                                 "-c:v", "libx265",
                                 "-pix_fmt", "yuv420p",
                                 "-tag:v", "hvc1",
@@ -77,7 +77,7 @@ public class MediaService {
                         System.out.println("[VIDEO] ffmpeg start id=" + id);
                         Process process = pb.start();
                         System.out.println("[VIDEO] after start");
-                        boolean finished = process.waitFor(5, TimeUnit.MINUTES);
+                        boolean finished = process.waitFor(2, TimeUnit.MINUTES);
                         if (!finished) {
                             process.destroyForcibly();
                             System.out.println("[VIDEO] TIMEOUT id=" + id);
@@ -86,9 +86,7 @@ public class MediaService {
                         System.out.println("[VIDEO] after waitFor");
                         int exit = process.exitValue();
                         if (exit != 0) {
-                            String err = new String(process.getErrorStream().readAllBytes());
                             System.out.println("[VIDEO] FFmpeg ERROR id=" + id);
-                            System.out.println(err);
                             throw new RuntimeException("FFmpeg failed");
                         }
                         System.out.println("[VIDEO] ffmpeg done id=" + id);
