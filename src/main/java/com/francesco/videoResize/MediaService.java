@@ -32,147 +32,96 @@ public class MediaService {
     }
     @Scheduled(fixedDelay = 10000)
     public void getVideo() {
-
         if (!this.running.compareAndSet(false, true)) {
             System.out.println("[VIDEO] job already running");
             return;
         }
-
         try {
             List<Map<String, Object>> video = getMedia();
-
             System.out.println("[VIDEO] fetched: " + video.size());
-
             if (video.isEmpty()) {
                 System.out.println("[VIDEO] no videos");
                 return;
             }
-
             for (Map<String, Object> vids : video) {
-
                 String publicId = null;
                 UUID id = null;
-
                 Path inputPath = null;
                 Path outputPath = null;
-
                 try {
-
                     publicId = vids.get("public_id").toString();
                     id = UUID.fromString(vids.get("id").toString());
-
                     System.out.println("[VIDEO] start id=" + id + " publicId=" + publicId);
-
                     try (InputStream in = storageService.getVideo("post-raw", publicId)) {
-
                         inputPath = Files.createTempFile("in-", ".mp4");
                         outputPath = Files.createTempFile("out-", ".mp4");
-
                         Files.copy(in, inputPath, StandardCopyOption.REPLACE_EXISTING);
-
                         System.out.println("[VIDEO] downloaded: " + inputPath);
-
                         ProcessBuilder pb = new ProcessBuilder(
                                 "ffmpeg",
                                 "-y",
-
                                 "-i", inputPath.toString(),
-
-                                // 🔥 forza rimozione rotazione + metadata strani
                                 "-map_metadata", "-1",
-
-                                // 🔥 normalizza colore (IMPORTANTISSIMO per iPhone HDR)
                                 "-vf", "scale=-2:720,format=yuv420p",
-
-                                // 🔥 encoding stabile
                                 "-c:v", "libx265",
                                 "-pix_fmt", "yuv420p",
                                 "-tag:v", "hvc1",
-
-                                // 🔥 compressione leggera
                                 "-crf", "30",
                                 "-preset", "fast",
-
-                                // 🔊 audio safe
                                 "-c:a", "aac",
                                 "-b:a", "96k",
-
                                 "-movflags", "+faststart",
-
                                 outputPath.toString()
                         );
 
                         System.out.println("[VIDEO] ffmpeg start id=" + id);
-
                         Process process = pb.start();
-
                         boolean finished = process.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
-
                         if (!finished) {
                             process.destroyForcibly();
                             System.out.println("[VIDEO] TIMEOUT id=" + id);
                             throw new RuntimeException("FFmpeg timeout");
                         }
-
                         int exit = process.exitValue();
-
                         if (exit != 0) {
-
                             String err = new String(process.getErrorStream().readAllBytes());
-
                             System.out.println("[VIDEO] FFmpeg ERROR id=" + id);
                             System.out.println(err);
-
                             throw new RuntimeException("FFmpeg failed");
                         }
-
                         System.out.println("[VIDEO] ffmpeg done id=" + id);
-
                         String key = storageService.uploadRawVideo(
                                 outputPath.toFile(),
                                 outputPath.getFileName().toString()
                         );
-
                         String url = storageService.getRawUrl(key);
-
                         storageService.delete("post-raw", publicId);
-
                         jdbcTemplate.update(
                                 "UPDATE media SET link = ?, public_id = ?, status = 'DONE' WHERE id = ?",
                                 url, key, id
                         );
-
                         System.out.println("[VIDEO] DONE id=" + id);
-
                     }
-
                 } catch (Exception e) {
-
                     System.out.println("[VIDEO] ERROR id=" + id + " publicId=" + publicId);
                     System.out.println("[VIDEO] " + e.getMessage());
-
                     if (id != null) {
                         jdbcTemplate.update(
                                 "UPDATE media SET status = 'ERROR' WHERE id = ?",
                                 id
                         );
                     }
-
                 } finally {
-
                     try {
                         if (inputPath != null) Files.deleteIfExists(inputPath);
                         if (outputPath != null) Files.deleteIfExists(outputPath);
                     } catch (IOException ignored) {}
-
                     System.out.println("[VIDEO] cleanup done id=" + id);
                 }
             }
-
         } finally {
             running.set(false);
             System.out.println("[VIDEO] job finished");
         }
     }
-
 }
