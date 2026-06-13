@@ -1,6 +1,6 @@
 package com.francesco.videoResize;
 
-import jakarta.annotation.PostConstruct;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -12,7 +12,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -30,7 +30,7 @@ public class MediaService {
         String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING'";
         return jdbcTemplate.queryForList(sql);
     }
-    @Scheduled(fixedDelay = 30000)
+    @Scheduled(fixedDelay = 10000)
     public void getVideo() {
         if (!this.running.compareAndSet(false, true)) {
             System.out.println("[VIDEO] job already running");
