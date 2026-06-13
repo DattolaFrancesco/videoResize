@@ -26,9 +26,9 @@ public class MediaService {
         this.storageService = storageService;
     }
 
-    public List<Map<String,Object>> getMedia(){
-        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING'";
-        return jdbcTemplate.queryForList(sql);
+    public Map<String,Object> getMedia(){
+        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' LIMIT 1";
+        return jdbcTemplate.queryForMap(sql);
     }
     @Scheduled(fixedDelay = 30000)
     public void getVideo() {
@@ -37,20 +37,19 @@ public class MediaService {
             return;
         }
         try {
-            List<Map<String, Object>> video = getMedia();
+            Map<String, Object> video = getMedia();
             System.out.println("[VIDEO] fetched: " + video.size());
             if (video.isEmpty()) {
                 System.out.println("[VIDEO] no videos");
                 return;
             }
-            for (Map<String, Object> vids : video) {
                 String publicId = null;
                 UUID id = null;
                 Path inputPath = null;
                 Path outputPath = null;
                 try {
-                    publicId = vids.get("public_id").toString();
-                    id = UUID.fromString(vids.get("id").toString());
+                    publicId = video.get("public_id").toString();
+                    id = UUID.fromString(video.get("id").toString());
                     System.out.println("[VIDEO] start id=" + id + " publicId=" + publicId);
                     try (InputStream in = storageService.getVideo("post-raw", publicId)) {
                         inputPath = Files.createTempFile("in-", ".mp4");
@@ -118,7 +117,7 @@ public class MediaService {
                     } catch (IOException ignored) {}
                     System.out.println("[VIDEO] cleanup done id=" + id);
                 }
-            }
+
         } finally {
             running.set(false);
             System.out.println("[VIDEO] job finished");
