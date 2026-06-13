@@ -12,7 +12,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -76,12 +76,14 @@ public class MediaService {
 
                         System.out.println("[VIDEO] ffmpeg start id=" + id);
                         Process process = pb.start();
-                        boolean finished = process.waitFor(5, java.util.concurrent.TimeUnit.MINUTES);
+                        System.out.println("[VIDEO] after start");
+                        boolean finished = process.waitFor(5, TimeUnit.MINUTES);
                         if (!finished) {
                             process.destroyForcibly();
                             System.out.println("[VIDEO] TIMEOUT id=" + id);
                             throw new RuntimeException("FFmpeg timeout");
                         }
+                        System.out.println("[VIDEO] after waitFor");
                         int exit = process.exitValue();
                         if (exit != 0) {
                             String err = new String(process.getErrorStream().readAllBytes());
