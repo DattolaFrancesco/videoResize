@@ -27,7 +27,7 @@ public class MediaService {
     }
 
     public Map<String,Object> getMedia(){
-        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1";
+        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' ORDER BY id ASC LIMIT 1";
         List<Map<String,Object>> result =  jdbcTemplate.queryForList(sql);
         return result.isEmpty() ? null : result.getFirst();
     }
