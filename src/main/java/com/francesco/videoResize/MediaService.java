@@ -27,7 +27,7 @@ public class MediaService {
     }
 
     public Map<String,Object> getMedia(){
-        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' LIMIT 1";
+        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1";
         List<Map<String,Object>> result =  jdbcTemplate.queryForList(sql);
         return result.isEmpty() ? null : result.getFirst();
     }
@@ -40,11 +40,7 @@ public class MediaService {
         Map<String, Object> video = getMedia();
         if(video == null) return;
         try {
-            System.out.println("[VIDEO] fetched: " + video.size());
-            if (video.isEmpty()) {
-                System.out.println("[VIDEO] no videos");
-                return;
-            }
+
                 String publicId = null;
                 UUID id = null;
                 Path inputPath = null;
