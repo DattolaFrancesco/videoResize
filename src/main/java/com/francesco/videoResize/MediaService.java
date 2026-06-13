@@ -26,10 +26,9 @@ public class MediaService {
         this.storageService = storageService;
     }
 
-    public Map<String,Object> getMedia(){
-        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING' ORDER BY id ASC LIMIT 1";
-        List<Map<String,Object>> result =  jdbcTemplate.queryForList(sql);
-        return result.isEmpty() ? null : result.getFirst();
+    public List<Map<String,Object>> getMedia(){
+        String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING'";
+        return jdbcTemplate.queryForList(sql);
     }
     @Scheduled(fixedDelay = 30000)
     public void getVideo() {
@@ -37,17 +36,21 @@ public class MediaService {
             System.out.println("[VIDEO] job already running");
             return;
         }
-        Map<String, Object> video = getMedia();
-        if(video == null) return;
         try {
-
+            List<Map<String, Object>> video = getMedia();
+            System.out.println("[VIDEO] fetched: " + video.size());
+            if (video.isEmpty()) {
+                System.out.println("[VIDEO] no videos");
+                return;
+            }
+            for (Map<String, Object> vids : video) {
                 String publicId = null;
                 UUID id = null;
                 Path inputPath = null;
                 Path outputPath = null;
                 try {
-                    publicId = video.get("public_id").toString();
-                    id = UUID.fromString(video.get("id").toString());
+                    publicId = vids.get("public_id").toString();
+                    id = UUID.fromString(vids.get("id").toString());
                     System.out.println("[VIDEO] start id=" + id + " publicId=" + publicId);
                     try (InputStream in = storageService.getVideo("post-raw", publicId)) {
                         inputPath = Files.createTempFile("in-", ".mp4");
@@ -115,7 +118,7 @@ public class MediaService {
                     } catch (IOException ignored) {}
                     System.out.println("[VIDEO] cleanup done id=" + id);
                 }
-
+            }
         } finally {
             running.set(false);
             System.out.println("[VIDEO] job finished");
