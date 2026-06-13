@@ -30,7 +30,7 @@ public class MediaService {
         String sql = "SELECT * FROM media WHERE format = 'video' AND status = 'PENDING'";
         return jdbcTemplate.queryForList(sql);
     }
-    @Scheduled(fixedDelay = 300000)
+    @Scheduled(fixedDelay = 30000)
     public void getVideo() {
         if (!this.running.compareAndSet(false, true)) {
             System.out.println("[VIDEO] job already running");
