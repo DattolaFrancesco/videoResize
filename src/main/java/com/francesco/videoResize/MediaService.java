@@ -75,21 +75,30 @@ public class MediaService {
                         ProcessBuilder pb = new ProcessBuilder(
                                 "ffmpeg",
                                 "-y",
+
                                 "-i", inputPath.toString(),
 
-                                // 🔥 RESIZE PIÙ LEGGERO
-                                "-vf", "scale=1280:-2",
+                                // 🔥 forza rimozione rotazione + metadata strani
+                                "-map_metadata", "-1",
 
-                                // 🔥 H.265 leggero
+                                // 🔥 normalizza colore (IMPORTANTISSIMO per iPhone HDR)
+                                "-vf", "scale=-2:720,format=yuv420p",
+
+                                // 🔥 encoding stabile
                                 "-c:v", "libx265",
-                                "-preset", "fast",
-                                "-crf", "31",
+                                "-pix_fmt", "yuv420p",
+                                "-tag:v", "hvc1",
 
-                                // 🔊 audio leggero
+                                // 🔥 compressione leggera
+                                "-crf", "30",
+                                "-preset", "fast",
+
+                                // 🔊 audio safe
                                 "-c:a", "aac",
                                 "-b:a", "96k",
 
                                 "-movflags", "+faststart",
+
                                 outputPath.toString()
                         );
 
